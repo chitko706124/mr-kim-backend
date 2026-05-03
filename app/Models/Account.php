@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 
 class Account extends Model
 {
@@ -49,5 +50,23 @@ class Account extends Model
                 $model->id = (string) \Illuminate\Support\Str::uuid();
             }
         });
+    }
+
+    public function getImagesAttribute($value): array
+    {
+        $images = is_array($value) ? $value : (json_decode((string) $value, true) ?: []);
+        $disk = config('filesystems.account_images_disk', config('filesystems.default', 'public'));
+
+        return array_map(function ($image) use ($disk) {
+            if (!is_string($image) || $image === '') {
+                return $image;
+            }
+
+            if (filter_var($image, FILTER_VALIDATE_URL)) {
+                return $image;
+            }
+
+            return Storage::disk($disk)->url($image);
+        }, $images);
     }
 }

@@ -13,6 +13,7 @@ use Illuminate\Http\UploadedFile;
 
 class AccountController extends Controller
 {
+    private string $imageDisk = 'public';
     // Constants
     private const COLLECTOR_LEVELS = ["Discount Accounts",
   "Expert collector",
@@ -25,7 +26,10 @@ class AccountController extends Controller
         'mobile_legend' => 'Mobile Legend',
         'pubg' => 'PUBG'
     ];
-
+    public function __construct()
+    {
+        $this->imageDisk = config('filesystems.account_images_disk', config('filesystems.default', 'public'));
+    }
 
 
     public function index(Request $request)
@@ -139,10 +143,10 @@ class AccountController extends Controller
                 $path = $image->storeAs(
                     'accounts',
                     $filename,
-                    'public'
+                    $this->imageDisk
                 );
 
-                $imagePaths[] = config('app.url') . Storage::url($path);
+                $imagePaths[] = $path;
             }
         }
 
@@ -308,6 +312,7 @@ class AccountController extends Controller
     // Start with existing images or empty array
     $currentImages = $account->images ?? [];
     $imagesToKeep = $request->images ?? $currentImages;
+    $imagesToKeep = array_values(array_filter(array_map(fn ($image) => $this->normalizeImagePath($image), $imagesToKeep)));
 
     // Handle new image uploads
     $newImagePaths = [];
@@ -324,10 +329,10 @@ class AccountController extends Controller
             $path = $image->storeAs(
                 'accounts',
                 $filename,
-                'public'
+                $this->imageDisk
             );
 
-            $newImagePaths[] = config('app.url') . Storage::url($path);
+            $newImagePaths[] = $path;
         }
     }
 
@@ -414,9 +419,9 @@ class AccountController extends Controller
             foreach ($account->images as $imageUrl) {
                 // Extract filename from URL and delete from storage
                 try {
-                    $path = str_replace('/storage/', '', parse_url($imageUrl, PHP_URL_PATH));
-                    if (Storage::disk('public')->exists($path)) {
-                        Storage::disk('public')->delete($path);
+                    $path = $this->normalizeImagePath($imageUrl);
+                    if ($path && Storage::disk($this->imageDisk)->exists($path)) {
+                        Storage::disk($this->imageDisk)->delete($path);
                     }
                 } catch (\Exception $e) {
                     // Log error but continue
@@ -449,9 +454,9 @@ class AccountController extends Controller
                 foreach ($account->images as $imageUrl) {
                     try {
                         // Extract filename from URL and delete from storage
-                        $path = str_replace('/storage/', '', parse_url($imageUrl, PHP_URL_PATH));
-                        if (Storage::disk('public')->exists($path)) {
-                            Storage::disk('public')->delete($path);
+                        $path = $this->normalizeImagePath($imageUrl);
+                        if ($path && Storage::disk($this->imageDisk)->exists($path)) {
+                            Storage::disk($this->imageDisk)->delete($path);
                             $imagesDeleted++;
                         }
                     } catch (\Exception $e) {
@@ -486,5 +491,29 @@ class AccountController extends Controller
                 'categories' => self::CATEGORIES
             ]
         ]);
+    }
+
+    private function normalizeImagePath(string $image): ?string
+    {
+        if ($image === '') {
+            return null;
+        }
+
+        if (!filter_var($image, FILTER_VALIDATE_URL)) {
+            return ltrim($image, '/');
+        }
+
+        $path = ltrim((string) parse_url($image, PHP_URL_PATH), '/');
+        $bucket = (string) config("filesystems.disks.{$this->imageDisk}.bucket");
+
+        if (str_starts_with($path, 'storage/')) {
+            return substr($path, 8);
+        }
+
+        if ($bucket !== '' && str_starts_with($path, $bucket . '/')) {
+            return substr($path, strlen($bucket) + 1);
+        }
+
+        return $path ?: null;
     }
 }
