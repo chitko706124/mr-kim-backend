@@ -13,7 +13,7 @@ use Illuminate\Http\UploadedFile;
 
 class AccountController extends Controller
 {
-    private string $imageDisk = 'public';
+    private string $imageDisk = 's3';
     // Constants
     private const COLLECTOR_LEVELS = ["Discount Accounts",
   "Expert collector",
@@ -28,7 +28,7 @@ class AccountController extends Controller
     ];
     public function __construct()
     {
-        $this->imageDisk = config('filesystems.account_images_disk', config('filesystems.default', 'public'));
+        $this->imageDisk = 's3';
     }
 
 
