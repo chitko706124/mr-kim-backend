@@ -4,16 +4,16 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Account;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Illuminate\Http\UploadedFile;
-
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class AccountController extends Controller
 {
-    private string $imageDisk = 's3';
+    private string $imageDisk;
     // Constants
     private const COLLECTOR_LEVELS = ["Discount Accounts",
   "Expert collector",
@@ -26,9 +26,10 @@ class AccountController extends Controller
         'mobile_legend' => 'Mobile Legend',
         'pubg' => 'PUBG'
     ];
+
     public function __construct()
     {
-        $this->imageDisk = 's3';
+        $this->imageDisk = (string) config('filesystems.account_images_disk', 's3');
     }
 
 
@@ -102,9 +103,9 @@ class AccountController extends Controller
             'collector_level' => 'nullable|string|in:' . implode(',', self::COLLECTOR_LEVELS),
             'category' => 'required|string|in:' . implode(',', array_keys(self::CATEGORIES)),
             'discount' => 'nullable|numeric|min:0|max:100',
-            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:10240',
             'images' => 'nullable|array',
-            'images.*' => 'image|mimes:jpeg,png,jpg,gif,webp',
+            'images.*' => 'image|mimes:jpeg,png,jpg,gif,webp|max:10240',
         ]);
 
         if ($validator->fails()) {
@@ -122,10 +123,15 @@ class AccountController extends Controller
                 $this->uploadRequestImages($request, 'images'),
                 $this->uploadRequestImages($request, 'image')
             );
-        } catch (\RuntimeException $e) {
+        } catch (\Throwable $e) {
+            Log::error('Account image upload failed during store.', [
+                'disk' => $this->imageDisk,
+                'message' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'status' => 'error',
-                'message' => $e->getMessage(),
+                'message' => 'Failed to upload images to object storage.',
             ], 500);
         }
 
@@ -274,9 +280,9 @@ class AccountController extends Controller
         'collector_level' => 'nullable|string|in:' . implode(',', self::COLLECTOR_LEVELS),
         'images' => 'sometimes|nullable|array',
         'images.*' => 'string', // URLs of images to keep
-        'image' => 'sometimes|nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
+        'image' => 'sometimes|nullable|image|mimes:jpeg,png,jpg,gif,webp|max:10240',
         'new_images' => 'sometimes|nullable|array',
-        'new_images.*' => 'image|mimes:jpeg,png,jpg,gif,webp|max:5120',
+        'new_images.*' => 'image|mimes:jpeg,png,jpg,gif,webp|max:10240',
         'category' => 'sometimes|required|string|in:' . implode(',', array_keys(self::CATEGORIES)),
         'discount' => 'nullable|numeric|min:0|max:100'
     ]);
@@ -300,10 +306,16 @@ class AccountController extends Controller
             $this->uploadRequestImages($request, 'new_images'),
             $this->uploadRequestImages($request, 'image')
         );
-    } catch (\RuntimeException $e) {
+    } catch (\Throwable $e) {
+        Log::error('Account image upload failed during update.', [
+            'account_id' => $account->id,
+            'disk' => $this->imageDisk,
+            'message' => $e->getMessage(),
+        ]);
+
         return response()->json([
             'status' => 'error',
-            'message' => $e->getMessage(),
+            'message' => 'Failed to upload images to object storage.',
         ], 500);
     }
 
@@ -471,7 +483,7 @@ class AccountController extends Controller
         }
 
         if (!filter_var($image, FILTER_VALIDATE_URL)) {
-            return ltrim($image, '/');
+            return str_replace('\\', '/', ltrim($image, '/'));
         }
 
         $path = ltrim((string) parse_url($image, PHP_URL_PATH), '/');
@@ -485,7 +497,7 @@ class AccountController extends Controller
             return substr($path, strlen($bucket) + 1);
         }
 
-        return $path ?: null;
+        return $path ? str_replace('\\', '/', $path) : null;
     }
 
     private function uploadRequestImages(Request $request, string $key): array
@@ -505,14 +517,20 @@ class AccountController extends Controller
                 throw new \RuntimeException("Invalid uploaded file for {$key}.");
             }
 
-            $filename = Str::uuid() . '.' . $image->getClientOriginalExtension();
-            $path = $image->storePubliclyAs('accounts', $filename, $this->imageDisk);
+            $extension = strtolower($image->getClientOriginalExtension() ?: $image->extension() ?: 'bin');
+            $filename = (string) Str::uuid() . '.' . $extension;
+            $path = Storage::disk($this->imageDisk)->putFileAs(
+                'accounts',
+                $image,
+                $filename,
+                ['visibility' => 'public']
+            );
 
             if ($path === false) {
                 throw new \RuntimeException("Failed to upload {$key} to DigitalOcean Spaces.");
             }
 
-            $paths[] = $path;
+            $paths[] = str_replace('\\', '/', $path);
         }
 
         return $paths;

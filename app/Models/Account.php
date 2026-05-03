@@ -55,7 +55,7 @@ class Account extends Model
     public function getImagesAttribute($value): array
     {
         $images = is_array($value) ? $value : (json_decode((string) $value, true) ?: []);
-        $disk = 's3';
+        $disk = (string) config('filesystems.account_images_disk', 's3');
 
         return array_map(function ($image) use ($disk) {
             if (!is_string($image) || $image === '') {
