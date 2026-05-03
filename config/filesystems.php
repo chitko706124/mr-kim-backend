@@ -56,12 +56,12 @@ return [
 
         's3' => [
             'driver' => 's3',
-            'key' => env('AWS_ACCESS_KEY_ID', env('DO_SPACES_KEY')),
-            'secret' => env('AWS_SECRET_ACCESS_KEY', env('DO_SPACES_SECRET')),
-            'region' => env('AWS_DEFAULT_REGION', env('DO_SPACES_REGION')),
-            'bucket' => env('AWS_BUCKET', env('DO_SPACES_BUCKET')),
-            'url' => env('AWS_URL', env('DO_SPACES_ENDPOINT')),
-            'endpoint' => env('AWS_ENDPOINT', env('DO_SPACES_ENDPOINT')),
+            'key' => env('DO_SPACES_KEY') ?: env('AWS_ACCESS_KEY_ID'),
+            'secret' => env('DO_SPACES_SECRET') ?: env('AWS_SECRET_ACCESS_KEY'),
+            'region' => env('DO_SPACES_REGION') ?: env('AWS_DEFAULT_REGION'),
+            'bucket' => env('DO_SPACES_BUCKET') ?: env('AWS_BUCKET'),
+            'url' => env('AWS_URL') ?: ('https://' . (env('DO_SPACES_BUCKET') ?: env('AWS_BUCKET')) . '.' . (env('DO_SPACES_REGION') ?: env('AWS_DEFAULT_REGION')) . '.digitaloceanspaces.com'),
+            'endpoint' => env('DO_SPACES_ENDPOINT') ?: env('AWS_ENDPOINT'),
             'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
             'throw' => false,
             'report' => false,
