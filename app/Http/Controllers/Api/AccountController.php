@@ -102,6 +102,7 @@ class AccountController extends Controller
             'collector_level' => 'nullable|string|in:' . implode(',', self::COLLECTOR_LEVELS),
             'category' => 'required|string|in:' . implode(',', array_keys(self::CATEGORIES)),
             'discount' => 'nullable|numeric|min:0|max:100',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp',
             'images' => 'nullable',
             'images.*' => 'image|mimes:jpeg,png,jpg,gif,webp',
         ]);
@@ -116,39 +117,10 @@ class AccountController extends Controller
 
         $imagePaths = [];
 
-        // Handle image uploads
-        if ($request->hasFile('images')) {
-            $files = $request->file('images');
-
-            // If single file, wrap into array
-            if ($files instanceof UploadedFile) {
-                $files = [$files];
-            }
-
-            // foreach ($files as $image) {
-            //     $filename =  Str::uuid() . '.' . $image->getClientOriginalExtension();
-
-            //     $path = $image->storeAs(
-            //         'accounts',
-            //         $filename,
-            //         'public'
-            //     );
-
-            //     // Store the full URL for access
-            //     $imagePaths[] = Storage::url($path);
-            // }
-            foreach ($files as $image) {
-                $filename = Str::uuid() . '.' . $image->getClientOriginalExtension();
-
-                $path = $image->storeAs(
-                    'accounts',
-                    $filename,
-                    $this->imageDisk
-                );
-
-                $imagePaths[] = $path;
-            }
-        }
+        $imagePaths = array_merge(
+            $this->uploadRequestImages($request, 'images'),
+            $this->uploadRequestImages($request, 'image')
+        );
 
         $account = Account::create([
             'id' => (string) Str::uuid(),
@@ -295,6 +267,7 @@ class AccountController extends Controller
         'collector_level' => 'nullable|string|in:' . implode(',', self::COLLECTOR_LEVELS),
         'images' => 'sometimes|nullable',
         'images.*' => 'string', // URLs of images to keep
+        'image' => 'sometimes|nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
         'new_images' => 'sometimes|nullable',
         'new_images.*' => 'image|mimes:jpeg,png,jpg,gif,webp|max:5120',
         'category' => 'sometimes|required|string|in:' . implode(',', array_keys(self::CATEGORIES)),
@@ -315,26 +288,10 @@ class AccountController extends Controller
     $imagesToKeep = array_values(array_filter(array_map(fn ($image) => $this->normalizeImagePath($image), $imagesToKeep)));
 
     // Handle new image uploads
-    $newImagePaths = [];
-    if ($request->hasFile('new_images')) {
-        $files = $request->file('new_images');
-
-        if ($files instanceof UploadedFile) {
-            $files = [$files];
-        }
-
-        foreach ($files as $image) {
-            $filename = Str::uuid() . '.' . $image->getClientOriginalExtension();
-
-            $path = $image->storeAs(
-                'accounts',
-                $filename,
-                $this->imageDisk
-            );
-
-            $newImagePaths[] = $path;
-        }
-    }
+    $newImagePaths = array_merge(
+        $this->uploadRequestImages($request, 'new_images'),
+        $this->uploadRequestImages($request, 'image')
+    );
 
     // Combine kept images and new images
     $allImages = array_merge($imagesToKeep, $newImagePaths);
@@ -515,5 +472,26 @@ class AccountController extends Controller
         }
 
         return $path ?: null;
+    }
+
+    private function uploadRequestImages(Request $request, string $key): array
+    {
+        if (!$request->hasFile($key)) {
+            return [];
+        }
+
+        $files = $request->file($key);
+        if ($files instanceof UploadedFile) {
+            $files = [$files];
+        }
+
+        $paths = [];
+        foreach ($files as $image) {
+            $filename = Str::uuid() . '.' . $image->getClientOriginalExtension();
+            $path = Storage::disk($this->imageDisk)->putFileAs('accounts', $image, $filename, ['visibility' => 'public']);
+            $paths[] = $path;
+        }
+
+        return $paths;
     }
 }
