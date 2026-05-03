@@ -103,7 +103,7 @@ class AccountController extends Controller
             'category' => 'required|string|in:' . implode(',', array_keys(self::CATEGORIES)),
             'discount' => 'nullable|numeric|min:0|max:100',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp',
-            'images' => 'nullable',
+            'images' => 'nullable|array',
             'images.*' => 'image|mimes:jpeg,png,jpg,gif,webp',
         ]);
 
@@ -117,10 +117,17 @@ class AccountController extends Controller
 
         $imagePaths = [];
 
-        $imagePaths = array_merge(
-            $this->uploadRequestImages($request, 'images'),
-            $this->uploadRequestImages($request, 'image')
-        );
+        try {
+            $imagePaths = array_merge(
+                $this->uploadRequestImages($request, 'images'),
+                $this->uploadRequestImages($request, 'image')
+            );
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
 
         $account = Account::create([
             'id' => (string) Str::uuid(),
@@ -265,10 +272,10 @@ class AccountController extends Controller
         'price' => 'sometimes|required|numeric|min:0',
         'skins' => 'sometimes|required|integer|min:0',
         'collector_level' => 'nullable|string|in:' . implode(',', self::COLLECTOR_LEVELS),
-        'images' => 'sometimes|nullable',
+        'images' => 'sometimes|nullable|array',
         'images.*' => 'string', // URLs of images to keep
         'image' => 'sometimes|nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
-        'new_images' => 'sometimes|nullable',
+        'new_images' => 'sometimes|nullable|array',
         'new_images.*' => 'image|mimes:jpeg,png,jpg,gif,webp|max:5120',
         'category' => 'sometimes|required|string|in:' . implode(',', array_keys(self::CATEGORIES)),
         'discount' => 'nullable|numeric|min:0|max:100'
@@ -288,10 +295,17 @@ class AccountController extends Controller
     $imagesToKeep = array_values(array_filter(array_map(fn ($image) => $this->normalizeImagePath($image), $imagesToKeep)));
 
     // Handle new image uploads
-    $newImagePaths = array_merge(
-        $this->uploadRequestImages($request, 'new_images'),
-        $this->uploadRequestImages($request, 'image')
-    );
+    try {
+        $newImagePaths = array_merge(
+            $this->uploadRequestImages($request, 'new_images'),
+            $this->uploadRequestImages($request, 'image')
+        );
+    } catch (\RuntimeException $e) {
+        return response()->json([
+            'status' => 'error',
+            'message' => $e->getMessage(),
+        ], 500);
+    }
 
     // Combine kept images and new images
     $allImages = array_merge($imagesToKeep, $newImagePaths);
@@ -487,8 +501,17 @@ class AccountController extends Controller
 
         $paths = [];
         foreach ($files as $image) {
+            if (!$image instanceof UploadedFile || !$image->isValid()) {
+                throw new \RuntimeException("Invalid uploaded file for {$key}.");
+            }
+
             $filename = Str::uuid() . '.' . $image->getClientOriginalExtension();
-            $path = Storage::disk($this->imageDisk)->putFileAs('accounts', $image, $filename, ['visibility' => 'public']);
+            $path = $image->storePubliclyAs('accounts', $filename, $this->imageDisk);
+
+            if ($path === false) {
+                throw new \RuntimeException("Failed to upload {$key} to DigitalOcean Spaces.");
+            }
+
             $paths[] = $path;
         }
 
